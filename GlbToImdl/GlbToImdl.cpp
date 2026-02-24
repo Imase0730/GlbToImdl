@@ -11,9 +11,9 @@
 // モデルデータフォーマット
 //
 // ファイルヘッダ (FileHeader)
-//   uint32_t magic      // 'IMDL'
+//   uint32_t magic      // 0x4C444D49; 'IMDL'
 //   uint32_t version    // 1
-//   uint32_t chunkCount // 5
+//   uint32_t chunkCount // 7
 //
 // ----- チャンク -----
 //
@@ -28,15 +28,23 @@
 //   uint32_t materialCount
 //   Material[materialCount] // MaterialInfo 構造体配列
 //
-// 3. メッシュチャンク (CHUNK_MESH)
-//   uint32_t meshCount
-//   MeshInfo[meshCount] // MeshInfo 構造体配列
+// 3. サブメッシュチャンク (CHUNK_SUBMESH)
+//   uint32_t subMeshCount
+//   SubMeshInfo[subMeshCount] // SubMeshInfo 構造体配列
 //
-// 4. 頂点チャンク (CHUNK_VERTEX)
+// 4. メッシュグループチャンク (CHUNK_MESHGROUP)
+//   uint32_t meshGroupCount
+//   MeshGroupInfo[meshGroupCount] // MeshGroupInfo 構造体配列
+//
+// 5. ノードチャンク (CHUNK_NODE)
+//   uint32_t nodeCount
+//   NodeInfo[nodeCount] // NodeInfo 構造体配列
+//
+// 6. 頂点チャンク (CHUNK_VERTEX)
 //   uint32_t vertexCount
 //   VertexPositionNormalTextureTangent[vertexCount] // 頂点配列
 //
-// 5. インデックスチャンク(CHUNK_INDEX)
+// 7. インデックスチャンク(CHUNK_INDEX)
 //   uint32_t indexCount
 //   uint32_t[indexCount] // インデックス配列
 //

@@ -87,9 +87,6 @@ namespace Imase
         CHUNK_INDEX = 'INDX'
     };
 
-    // チェンクの数
-    static constexpr int ActualChunkCount = 7;
-
     // テクスチャタイプ
     enum class TextureType
     {
