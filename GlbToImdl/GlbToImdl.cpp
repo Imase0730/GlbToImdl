@@ -545,6 +545,7 @@ static void ConvertImdl(
         indexBuffer.push_back(index);
     }
 
+    // アニメション
     animationClips = ConvertAllClips(gltf.animationClips);
 
     return;
@@ -735,6 +736,75 @@ static std::vector<uint8_t> BuildIndexChunk(const std::vector<uint32_t>& indices
     return writer.GetBuffer();
 }
 
+// アニメションチャンネル（x, y, z）のシリアライズ関数
+inline void SerializeChannelVec3(BinaryWriter& writer, const AnimationChannelVec3& vec3)
+{
+    writer.WriteUInt32(vec3.nodeIndex);
+
+
+    writer.WriteUInt32(static_cast<uint32_t>(vec3.times.size()));
+    for (const auto& time : vec3.times)
+    {
+        writer.WriteFloat(time);
+    }
+
+    writer.WriteCountedArray(vec3.values);
+}
+
+// アニメションチャンネル（x, y, z, w）のシリアライズ関数
+inline void SerializeChannelQuat(BinaryWriter& writer, const AnimationChannelQuat& quat)
+{
+    writer.WriteUInt32(quat.nodeIndex);
+
+    writer.WriteUInt32(static_cast<uint32_t>(quat.times.size()));
+    for (const auto& time : quat.times)
+    {
+        writer.WriteFloat(time);
+    }
+
+    writer.WriteCountedArray(quat.values);
+}
+
+// アニメションクリップ情報のシリアライズ関数
+inline void SerializeAnimationClip(BinaryWriter& writer, const Imase::AnimationClip& clip)
+{
+    writer.WriteString(clip.name);
+    writer.WriteFloat(clip.duration);
+
+    writer.WriteUInt32(static_cast<uint32_t>(clip.translations.size()));
+    for (const auto& trans : clip.translations)
+    {
+        SerializeChannelVec3(writer, trans);
+    }
+
+    writer.WriteUInt32(static_cast<uint32_t>(clip.rotations.size()));
+    for (const auto& rot : clip.rotations)
+    {
+        SerializeChannelQuat(writer, rot);
+    }
+
+    writer.WriteUInt32(static_cast<uint32_t>(clip.scales.size()));
+    for (const auto& scale : clip.scales)
+    {
+        SerializeChannelVec3(writer, scale);
+    }
+}
+
+// アニメションデータ作成
+static std::vector<uint8_t> BuildAnimationChunk(const std::vector<Imase::AnimationClip>& animationClips)
+{
+    BinaryWriter writer;
+
+    writer.WriteUInt32(static_cast<uint32_t>(animationClips.size()));
+
+    for (const auto& clip : animationClips)
+    {
+        SerializeAnimationClip(writer, clip);
+    }
+
+    return writer.GetBuffer();
+}
+
 // ファイルへの出力関数
 static HRESULT OutputImdl( const std::filesystem::path& path,
                            std::vector<MaterialInfo>& materials,
@@ -743,7 +813,8 @@ static HRESULT OutputImdl( const std::filesystem::path& path,
                            std::vector<NodeInfo>& nodes,
                            std::vector<TextureEntry>& textures,
                            std::vector<VertexPositionNormalTextureTangent>& vertexBuffer,
-                           std::vector<uint32_t>& indexBuffer
+                           std::vector<uint32_t>& indexBuffer,
+                           std::vector<Imase::AnimationClip>& animationClips
 )
 {
     // 出力ファイルオープン
@@ -787,6 +858,9 @@ static HRESULT OutputImdl( const std::filesystem::path& path,
 
     // ----- Index ----- //
     WriteChunk(ofs, chunkCount, CHUNK_INDEX, BuildIndexChunk(indexBuffer));
+
+    // ----- ANIMATION ----- //
+    WriteChunk(ofs, chunkCount, CHUNK_ANIMATION, BuildAnimationChunk(animationClips));
 
     // チャンク数を追加したヘッダを書き戻す
     fileHeader.chunkCount = chunkCount;
@@ -845,7 +919,7 @@ int wmain(int argc, wchar_t* wargv[])
 
     // ----- 書き出し ----- //
 
-    OutputImdl(output, materials, subMeshes, meshGroups, nodes, textures, vertexBuffer, indexBuffer);
+    OutputImdl(output, materials, subMeshes, meshGroups, nodes, textures, vertexBuffer, indexBuffer, animationClips);
 
     CoUninitialize();
 

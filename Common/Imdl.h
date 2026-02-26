@@ -84,7 +84,8 @@ namespace Imase
         CHUNK_MESHGROUP = 'MGRP',
         CHUNK_NODE = 'NODE',
         CHUNK_VERTEX = 'VERT',
-        CHUNK_INDEX = 'INDX'
+        CHUNK_INDEX = 'INDX',
+        CHUNK_ANIMATION = 'ANIM'
     };
 
     // テクスチャタイプ

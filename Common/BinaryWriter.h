@@ -10,6 +10,7 @@
 //--------------------------------------------------------------------------------------
 #pragma once
 #include <vector>
+#include <string>
 
 namespace Imase
 {
@@ -51,6 +52,15 @@ namespace Imase
             {
                 WriteRaw(vec.data(), sizeof(T) * vec.size());
             }
+        }
+
+        // std::string‚ğ‘‚«‚ŞŠÖ”
+        //yuint32_tz(count) + y1bytez * count
+        void WriteString(const std::string& str)
+        {
+            uint32_t length = static_cast<uint32_t>(str.size());
+            WriteUInt32(length);
+            WriteBytes(str.data(), length);
         }
 
         // ƒoƒbƒtƒ@‚ğæ“¾‚·‚éŠÖ”
