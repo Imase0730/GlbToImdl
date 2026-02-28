@@ -65,66 +65,69 @@ void GltfLoader::BuildNode(
 
     for (size_t i = 0; i < nodes.size(); i++)
     {
-        auto& n = model.nodes[i];
+        const auto& n = model.nodes[i];
 
         nodes[i].meshGroupIndex = n.mesh;
         nodes[i].parentIndex = -1;
 
-        XMMATRIX local = XMMatrixIdentity();
+        // 初期化
+        nodes[i].defaultTranslation = { 0.0f, 0.0f, 0.0f };
+        nodes[i].defaultRotation = { 0.0f, 0.0f, 0.0f, 1.0f };
+        nodes[i].defaultScale = { 1.0f, 1.0f, 1.0f };
 
         if (n.matrix.size() == 16)
         {
+            // 行列として保存されている場合
             XMFLOAT4X4 m = {};
-
             float* dst = reinterpret_cast<float*>(&m);
+
             for (int j = 0; j < 16; j++)
-            {
                 dst[j] = static_cast<float>(n.matrix[j]);
-            }
 
-            local = XMLoadFloat4x4(&m);
+            XMMATRIX M = XMLoadFloat4x4(&m);
+            M = XMMatrixTranspose(M);
 
-            // DirectXMathは行優先なので転置する
-            local = XMMatrixTranspose(local);
+            XMVECTOR S, R, T;
+            XMMatrixDecompose(&S, &R, &T, M);
+
+            XMStoreFloat3(&nodes[i].defaultScale, S);       // 移動
+            XMStoreFloat4(&nodes[i].defaultRotation, R);    // 回転
+            XMStoreFloat3(&nodes[i].defaultTranslation, T); // スケール
         }
         else
         {
-            XMVECTOR t = { 0.0f, 0.0f, 0.0f, 1.0f };
-            XMVECTOR r = { 0.0f, 0.0f, 0.0f, 1.0f };
-            XMVECTOR s = { 1.0f, 1.0f, 1.0f, 1.0f };
-
+            // 移動
             if (n.translation.size() == 3)
             {
-                t = XMVectorSet(
-                    static_cast<float>(n.translation[0]),
-                    static_cast<float>(n.translation[1]),
-                    static_cast<float>(n.translation[2]),
-                    1.0f
-                );
+                nodes[i].defaultTranslation =
+                {
+                    (float)n.translation[0],
+                    (float)n.translation[1],
+                    (float)n.translation[2]
+                };
             }
+            // 回転
             if (n.rotation.size() == 4)
             {
-                r = XMVectorSet(
-                    static_cast<float>(n.rotation[0]),
-                    static_cast<float>(n.rotation[1]),
-                    static_cast<float>(n.rotation[2]),
-                    static_cast<float>(n.rotation[3])
-                );
+                nodes[i].defaultRotation =
+                {
+                    (float)n.rotation[0],
+                    (float)n.rotation[1],
+                    (float)n.rotation[2],
+                    (float)n.rotation[3]
+                };
             }
+            // スケール
             if (n.scale.size() == 3)
             {
-                s = XMVectorSet(
-                    static_cast<float>(n.scale[0]),
-                    static_cast<float>(n.scale[1]),
-                    static_cast<float>(n.scale[2]),
-                    1.0f
-                );
+                nodes[i].defaultScale =
+                {
+                    (float)n.scale[0],
+                    (float)n.scale[1],
+                    (float)n.scale[2]
+                };
             }
-
-            local = XMMatrixScalingFromVector(s) * XMMatrixRotationQuaternion(r) *  XMMatrixTranslationFromVector(t);
         }
-
-        XMStoreFloat4x4(&nodes[i].localMatrix, local);
     }
 
     // 親子関係構築

@@ -465,6 +465,65 @@ static std::vector<Imase::AnimationClip> ConvertAllClips(const std::vector<GltfL
     return result;
 }
 
+// アニメーションデータのノードを『親→子』に並び変えを行う関数
+static void ReorderNodes(
+    std::vector<NodeInfo>& nodes,
+    std::vector<Imase::AnimationClip>& clips
+)
+{
+    const size_t count = nodes.size();
+
+    // 新旧インデックスマップ
+    std::vector<int> oldToNew(count, -1);
+    std::vector<NodeInfo> newNodes;
+    newNodes.reserve(count);
+
+    // DFSで親→子順に追加
+    std::function<void(int)> dfs = [&](int index)
+        {
+            if (oldToNew[index] != -1)
+                return;
+
+            int parent = nodes[index].parentIndex;
+            if (parent >= 0)
+                dfs(parent);
+
+            oldToNew[index] = (int)newNodes.size();
+            newNodes.push_back(nodes[index]);
+        };
+
+    for (size_t i = 0; i < count; ++i)
+        dfs((int)i);
+
+    // parentIndex を書き換える
+    for (auto& node : newNodes)
+    {
+        if (node.parentIndex >= 0)
+            node.parentIndex = oldToNew[node.parentIndex];
+    }
+
+    // animation の nodeIndex を更新
+    for (auto& clip : clips)
+    {
+        for (auto& ch : clip.translations)
+        {
+            ch.nodeIndex = oldToNew[ch.nodeIndex];
+        }
+
+        for (auto& ch : clip.rotations)
+        {
+            ch.nodeIndex = oldToNew[ch.nodeIndex];
+        }
+
+        for (auto& ch : clip.scales)
+        {
+            ch.nodeIndex = oldToNew[ch.nodeIndex];
+        }
+    }
+
+    nodes = std::move(newNodes);
+}
+
 // glTFファイルの情報取得関数
 static void ConvertImdl(
     ID3D11Device* device,
@@ -547,6 +606,9 @@ static void ConvertImdl(
 
     // アニメション
     animationClips = ConvertAllClips(gltf.animationClips);
+
+    // ノードとアニメーションを再構築
+    ReorderNodes(nodes, animationClips);
 
     return;
 }
@@ -656,25 +718,18 @@ inline void SerializeNode(BinaryWriter& writer, const NodeInfo& m)
 
     writer.WriteInt32(m.parentIndex);
 
-    writer.WriteFloat(m.localMatrix._11);
-    writer.WriteFloat(m.localMatrix._12);
-    writer.WriteFloat(m.localMatrix._13);
-    writer.WriteFloat(m.localMatrix._14);
+    writer.WriteFloat(m.defaultTranslation.x);
+    writer.WriteFloat(m.defaultTranslation.y);
+    writer.WriteFloat(m.defaultTranslation.z);
 
-    writer.WriteFloat(m.localMatrix._21);
-    writer.WriteFloat(m.localMatrix._22);
-    writer.WriteFloat(m.localMatrix._23);
-    writer.WriteFloat(m.localMatrix._24);
+    writer.WriteFloat(m.defaultRotation.x);
+    writer.WriteFloat(m.defaultRotation.y);
+    writer.WriteFloat(m.defaultRotation.z);
+    writer.WriteFloat(m.defaultRotation.w);
 
-    writer.WriteFloat(m.localMatrix._31);
-    writer.WriteFloat(m.localMatrix._32);
-    writer.WriteFloat(m.localMatrix._33);
-    writer.WriteFloat(m.localMatrix._34);
-
-    writer.WriteFloat(m.localMatrix._41);
-    writer.WriteFloat(m.localMatrix._42);
-    writer.WriteFloat(m.localMatrix._43);
-    writer.WriteFloat(m.localMatrix._44);
+    writer.WriteFloat(m.defaultScale.x);
+    writer.WriteFloat(m.defaultScale.y);
+    writer.WriteFloat(m.defaultScale.z);
 }
 
 // ノード情報データ作成

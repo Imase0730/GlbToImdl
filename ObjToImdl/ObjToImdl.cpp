@@ -826,8 +826,10 @@ static void ConvertImdl( Object& object,
 
         NodeInfo node = {};
         node.meshGroupIndex = static_cast<int32_t>(meshGroupInfo.size());
-        XMStoreFloat4x4(&node.localMatrix, XMMatrixIdentity());
         node.parentIndex = -1;
+        node.defaultTranslation = { 0.0f, 0.0f, 0.0f };
+        node.defaultRotation = { 0.0f, 0.0f, 0.0f, 1.0f };
+        node.defaultScale = { 1.0f, 1.0f, 1.0f };
 
         uint32_t meshCount = 0;
 
@@ -986,25 +988,18 @@ inline void SerializeNode(BinaryWriter& writer, const NodeInfo& m)
 
     writer.WriteInt32(m.parentIndex);
 
-    writer.WriteFloat(m.localMatrix._11);
-    writer.WriteFloat(m.localMatrix._12);
-    writer.WriteFloat(m.localMatrix._13);
-    writer.WriteFloat(m.localMatrix._14);
+    writer.WriteFloat(m.defaultTranslation.x);
+    writer.WriteFloat(m.defaultTranslation.y);
+    writer.WriteFloat(m.defaultTranslation.z);
 
-    writer.WriteFloat(m.localMatrix._21);
-    writer.WriteFloat(m.localMatrix._22);
-    writer.WriteFloat(m.localMatrix._23);
-    writer.WriteFloat(m.localMatrix._24);
+    writer.WriteFloat(m.defaultRotation.x);
+    writer.WriteFloat(m.defaultRotation.y);
+    writer.WriteFloat(m.defaultRotation.z);
+    writer.WriteFloat(m.defaultRotation.w);
 
-    writer.WriteFloat(m.localMatrix._31);
-    writer.WriteFloat(m.localMatrix._32);
-    writer.WriteFloat(m.localMatrix._33);
-    writer.WriteFloat(m.localMatrix._34);
-
-    writer.WriteFloat(m.localMatrix._41);
-    writer.WriteFloat(m.localMatrix._42);
-    writer.WriteFloat(m.localMatrix._43);
-    writer.WriteFloat(m.localMatrix._44);
+    writer.WriteFloat(m.defaultScale.x);
+    writer.WriteFloat(m.defaultScale.y);
+    writer.WriteFloat(m.defaultScale.z);
 }
 
 // ノード情報データ作成

@@ -54,7 +54,10 @@ namespace Imase
     {
         int32_t meshGroupIndex;
         int32_t parentIndex;
-        DirectX::XMFLOAT4X4 localMatrix;
+
+        DirectX::XMFLOAT3 defaultTranslation;
+        DirectX::XMFLOAT4 defaultRotation;
+        DirectX::XMFLOAT3 defaultScale;
     };
 
     // í∏ì_èÓïÒ
