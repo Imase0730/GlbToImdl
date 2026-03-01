@@ -44,6 +44,10 @@ public:
         DirectX::XMFLOAT3 normal;   // 法線
         DirectX::XMFLOAT2 uv;       // テクスチャ座標
         DirectX::XMFLOAT4 tangent;  // 接線
+
+        // スキニング用
+        DirectX::XMUINT4 joint;
+        DirectX::XMFLOAT4 weight;
     };
 
     // サンプラー情報
@@ -113,6 +117,9 @@ public:
 
         // アニメーション
         std::vector<AnimationClip> animationClips;
+
+        // スキン
+        std::vector<Imase::SkinInfo> skins;
     };
 
 private:
@@ -137,6 +144,18 @@ private:
 
     // アニメーション情報を取得する関数
     static void BuildAnimation(const tinygltf::Model& model, std::vector<AnimationClip>& animations);
+
+    // スキン情報を取得する関数
+    static void BuildSkin(const tinygltf::Model& model, const std::vector<Imase::NodeInfo>& nodes, std::vector<Imase::SkinInfo>& skins);
+
+    // ジョイント情報を取得する関数
+    static void ReadJoints(const tinygltf::Model& model, int accessorIndex, std::vector<DirectX::XMUINT4>& outJoints);
+
+    // ウエイト情報を取得する関数
+    static void ReadWeights(const tinygltf::Model& model, int accessorIndex, std::vector<DirectX::XMFLOAT4>& outWeights);
+
+    // ルートジョイントインデックスを返す関数
+    static int FindRootJoint(const std::vector<int>& joints, const std::vector<Imase::NodeInfo>& nodes);
 
 public:
 

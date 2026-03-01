@@ -54,6 +54,7 @@ namespace Imase
     {
         int32_t meshGroupIndex;
         int32_t parentIndex;
+        int32_t skinIndex;
 
         DirectX::XMFLOAT3 defaultTranslation;
         DirectX::XMFLOAT4 defaultRotation;
@@ -67,6 +68,10 @@ namespace Imase
         DirectX::XMFLOAT3 normal;      // 法線
         DirectX::XMFLOAT2 texcoord;    // テクスチャ座標
         DirectX::XMFLOAT4 tangent;     // xyz = 接線, w = 従接線の向きを調整（1,-1)
+
+        // ----- スキニング用 ----- //
+        uint16_t joints[4];
+        float    weights[4];
     };
 
     // -------------------------------------------------------------------------------------- //
@@ -88,7 +93,8 @@ namespace Imase
         CHUNK_NODE = 'NODE',
         CHUNK_VERTEX = 'VERT',
         CHUNK_INDEX = 'INDX',
-        CHUNK_ANIMATION = 'ANIM'
+        CHUNK_ANIMATION = 'ANIM',
+        CHUNK_SKIN = 'SKIN'
     };
 
     // テクスチャタイプ
@@ -138,6 +144,18 @@ namespace Imase
         std::vector<AnimationChannelVec3> translations; // 移動
         std::vector<AnimationChannelQuat> rotations;    // 回転
         std::vector<AnimationChannelVec3> scales;       // スケール
+    };
+
+    // -------------------------------------------------------------------------------------- //
+    // スキン
+    // -------------------------------------------------------------------------------------- //
+ 
+    // スキン情報
+    struct SkinInfo
+    {
+        int32_t rootNode;
+        std::vector<uint32_t> jointIndices;
+        std::vector<DirectX::XMFLOAT4X4> inverseBindMatrices;
     };
 
 }

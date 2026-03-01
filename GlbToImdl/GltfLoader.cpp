@@ -52,6 +52,9 @@ GltfLoader::GltfModel GltfLoader::Load(const std::filesystem::path& fname)
     // アニメーション情報取得
     BuildAnimation(model, gltfModel.animationClips);
 
+    // スキニング情報取得
+    BuildSkin(model, gltfModel.nodes, gltfModel.skins);
+
     return gltfModel;
 }
 
@@ -69,6 +72,7 @@ void GltfLoader::BuildNode(
 
         nodes[i].meshGroupIndex = n.mesh;
         nodes[i].parentIndex = -1;
+        nodes[i].skinIndex = n.skin;  // -1なら無し
 
         // 初期化
         nodes[i].defaultTranslation = { 0.0f, 0.0f, 0.0f };
@@ -90,9 +94,9 @@ void GltfLoader::BuildNode(
             XMVECTOR S, R, T;
             XMMatrixDecompose(&S, &R, &T, M);
 
-            XMStoreFloat3(&nodes[i].defaultScale, S);       // 移動
+            XMStoreFloat3(&nodes[i].defaultScale, S);       // スケール
             XMStoreFloat4(&nodes[i].defaultRotation, R);    // 回転
-            XMStoreFloat3(&nodes[i].defaultTranslation, T); // スケール
+            XMStoreFloat3(&nodes[i].defaultTranslation, T); // 移動
         }
         else
         {
@@ -140,6 +144,113 @@ void GltfLoader::BuildNode(
     }
 }
 
+// ジョイント情報を取得する関数
+void GltfLoader::ReadJoints(
+    const tinygltf::Model& model,
+    int accessorIndex,
+    std::vector<DirectX::XMUINT4>& outJoints
+)
+{
+    const auto& accessor = model.accessors[accessorIndex];
+    assert(accessor.type == TINYGLTF_TYPE_VEC4);
+
+    outJoints.resize(accessor.count);
+    
+    // uint8_t
+    if (accessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE)
+    {
+        AccessorView<uint8_t[4]> view(model, accessorIndex);
+        for (size_t i = 0; i < accessor.count; ++i)
+        {
+            const auto& v = view[i];
+            outJoints[i] = DirectX::XMUINT4(v[0], v[1], v[2], v[3]);
+        }
+    }
+    // uint16_t
+    else if (accessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
+    {
+        AccessorView<uint16_t[4]> view(model, accessorIndex);
+
+        for (size_t i = 0; i < accessor.count; ++i)
+        {
+            const auto& v = view[i];
+            outJoints[i] = DirectX::XMUINT4(v[0], v[1], v[2], v[3]);
+        }
+    }
+    else
+    {
+        throw std::runtime_error("Unsupported JOINT component type");
+    }
+}
+
+// ウエイト情報を取得する関数
+void GltfLoader::ReadWeights(
+    const tinygltf::Model& model,
+    int accessorIndex,
+    std::vector<DirectX::XMFLOAT4>& outWeights
+)
+{
+    const auto& accessor = model.accessors[accessorIndex];
+
+    outWeights.resize(accessor.count);
+
+    switch (accessor.componentType)
+    {
+
+    case TINYGLTF_COMPONENT_TYPE_FLOAT: // float
+    {
+        AccessorView<DirectX::XMFLOAT4> view(model, accessorIndex);
+
+        for (size_t i = 0; i < view.size(); ++i)
+        {
+            outWeights[i] = view[i];
+        }
+        break;
+    }
+
+    case TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE: // 1byte
+    {
+        AccessorView<uint8_t[4]> view(model, accessorIndex);
+
+        for (size_t i = 0; i < view.size(); ++i)
+        {
+            const uint8_t* w = view[i];
+            outWeights[i] = DirectX::XMFLOAT4(w[0] / 255.0f, w[1] / 255.0f, w[2] / 255.0f, w[3] / 255.0f);
+        }
+        break;
+    }
+
+    case TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT:    // 2byte
+    {
+        AccessorView<uint16_t[4]> view(model, accessorIndex);
+
+        for (size_t i = 0; i < view.size(); ++i)
+        {
+            const uint16_t* w = view[i];
+            outWeights[i] = DirectX::XMFLOAT4(w[0] / 65535.0f, w[1] / 65535.0f, w[2] / 65535.0f, w[3] / 65535.0f);
+        }
+        break;
+    }
+
+    default:
+        throw std::runtime_error("Unsupported WEIGHTS component type");
+    }
+
+    // 念のため正規化補正（誤差対策）
+    for (auto& w : outWeights)
+    {
+        float sum = w.x + w.y + w.z + w.w;
+
+        if (sum > 0.00001f)
+        {
+            w.x /= sum;
+            w.y /= sum;
+            w.z /= sum;
+            w.w /= sum;
+        }
+    }
+}
+
 // モデル情報を取得する関数
 void GltfLoader::BuildMesh(
     const tinygltf::Model& model,
@@ -162,10 +273,10 @@ void GltfLoader::BuildMesh(
             uint32_t vertexStart = (uint32_t)outModel.vertices.size();
             uint32_t indexStart = (uint32_t)outModel.indices.size();
 
-            // 位置取得
+            // ----- 位置 ----- //
             AccessorView<XMFLOAT3> positions(model, primitive.attributes.at("POSITION"));
 
-            // 法線
+            // ----- 法線 ----- //
             std::unique_ptr<AccessorView<XMFLOAT3>> normals;
             bool hasNormal = primitive.attributes.count("NORMAL") > 0;
             if (hasNormal)
@@ -173,7 +284,7 @@ void GltfLoader::BuildMesh(
                 normals = std::make_unique<AccessorView<XMFLOAT3>>(model, primitive.attributes.at("NORMAL"));
             }
 
-            // テクスチャ座標
+            // ----- テクスチャ座標 ----- //
             std::unique_ptr<AccessorView<XMFLOAT2>> uvs;
             bool hasUV = primitive.attributes.count("TEXCOORD_0") > 0;
             if (hasUV)
@@ -181,12 +292,30 @@ void GltfLoader::BuildMesh(
                 uvs = std::make_unique<AccessorView<XMFLOAT2>>(model, primitive.attributes.at("TEXCOORD_0"));
             }
 
-            // 接線
+            // ----- 接線 ----- //
             std::unique_ptr<AccessorView<XMFLOAT4>> tangents;
             bool hasTangent = primitive.attributes.count("TANGENT") > 0;
             if (hasTangent)
             {
                 tangents = std::make_unique<AccessorView<XMFLOAT4>>(model, primitive.attributes.at("TANGENT"));
+            }
+
+            // ----- スキン ----- //
+            bool hasSkin = primitive.attributes.count("JOINTS_0") > 0 && primitive.attributes.count("WEIGHTS_0") > 0;
+            std::vector<DirectX::XMUINT4> joints;
+            std::vector<DirectX::XMFLOAT4> weights;
+            if (hasSkin)
+            {
+                // ジョイント
+                ReadJoints(model, primitive.attributes.at("JOINTS_0"), joints);
+
+                // ウエイト
+                ReadWeights(model, primitive.attributes.at("WEIGHTS_0"), weights);
+            }
+            else
+            {
+                joints.resize(positions.size(), DirectX::XMUINT4(0, 0, 0, 0));
+                weights.resize(positions.size(), DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 0.0f));
             }
 
             // 頂点追加
@@ -197,7 +326,9 @@ void GltfLoader::BuildMesh(
                     positions[j],
                     hasNormal ? (*normals)[j] : XMFLOAT3(0.0f, 0.0f, 1.0f),
                     hasUV ? (*uvs)[j] : XMFLOAT2(0.0f, 0.0f),
-                    hasTangent ? (*tangents)[j] : XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f)
+                    hasTangent ? (*tangents)[j] : XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f),
+                    joints[j],
+                    weights[j],
                 };
                 outModel.vertices.push_back(vertex);
             }
@@ -433,4 +564,93 @@ void GltfLoader::BuildAnimation(const tinygltf::Model& model, std::vector<Animat
         }
         clips.push_back(clip);
     }
+}
+
+// ルートジョイントインデックスを返す関数
+int GltfLoader::FindRootJoint(const std::vector<int>& joints, const std::vector<Imase::NodeInfo>& nodes)
+{
+    for (int joint : joints)
+    {
+        int parent = nodes[joint].parentIndex;
+
+        // 親を持たないのでルートノード
+        if (parent < 0)
+        {
+            return joint;
+        }
+
+        // スキンに含まれるジョイントの中で、一番上にあるもの
+        if (std::find(joints.begin(), joints.end(), parent) == joints.end())
+        {
+            return joint;
+        }
+    }
+
+    return joints.empty() ? -1 : joints[0];
+}
+
+// スキン情報を取得する関数
+void GltfLoader::BuildSkin(
+    const tinygltf::Model& model,
+    const std::vector<Imase::NodeInfo>& nodes,
+    std::vector<Imase::SkinInfo>& skins
+)
+{
+    skins.resize(model.skins.size());
+
+    // スキン数分ループ
+    for (size_t i = 0; i < model.skins.size(); i++)
+    {
+        const tinygltf::Skin& skin = model.skins[i];
+        auto& outSkin = skins[i];
+
+        // ルートノード
+        if (skin.skeleton >= 0)
+        {
+            outSkin.rootNode = skin.skeleton;
+        }
+        else
+        {
+            // ルートノードがない場合
+            outSkin.rootNode = FindRootJoint(skin.joints, nodes);
+        }
+
+        // ジョイント
+        for (int joint : skin.joints)
+        {
+            outSkin.jointIndices.push_back(static_cast<uint32_t>(joint));
+        }
+
+        // バインド時のジョイント空間を打ち消す行列
+        if (skin.inverseBindMatrices >= 0)
+        {
+            AccessorView<XMFLOAT4X4> values(model, skin.inverseBindMatrices);
+
+            if (values.size() != skin.joints.size())
+                throw std::runtime_error("inverseBindMatrices count mismatch.");
+
+            outSkin.inverseBindMatrices.reserve(values.size());
+
+            for (size_t j = 0; j < values.size(); j++)
+            {
+                XMMATRIX m = XMLoadFloat4x4(&values[j]);
+                m = XMMatrixTranspose(m);   // <- 転置する（DirectXは行優先のため）
+
+                XMFLOAT4X4 store;
+                XMStoreFloat4x4(&store, m);
+
+                outSkin.inverseBindMatrices.push_back(store);
+            }
+        }
+        else
+        {
+            outSkin.inverseBindMatrices.resize(skin.joints.size());
+            for (auto& m : outSkin.inverseBindMatrices)
+            {
+                XMStoreFloat4x4(&m, XMMatrixIdentity());
+            }
+        }
+    }
+
+    return;
 }

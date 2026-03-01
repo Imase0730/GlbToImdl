@@ -13,7 +13,7 @@
 // ファイルヘッダ (FileHeader)
 //   uint32_t magic      // 0x4C444D49; 'IMDL'
 //   uint32_t version    // 1
-//   uint32_t chunkCount // 7
+//   uint32_t chunkCount // 9
 //
 // ----- チャンク -----
 //
@@ -48,6 +48,14 @@
 //   uint32_t indexCount
 //   uint32_t[indexCount] // インデックス配列
 //
+// 8. アニメーションチャンク(CHUNK_ANIMATION)
+//   uint32_t animationCount
+//   AnimationClip[animationCount] // AnimationClip 構造体配列
+//
+// 9. スキンチャンク(CHUNK_SKIN)
+//   uint32_t skinCount
+//   SkinInfo[skinCount] // SkinInfo 構造体配列
+//
 // ------------------------------------------------------------ //
 
 #include <iostream>
@@ -70,6 +78,8 @@ using namespace DirectX;
 using namespace Imase;
 
 #pragma comment(lib, "d3d11.lib")
+
+using TextureKey = std::pair<int, TextureType>;
 
 // UTF-16 → UTF-8 変換
 static std::string WStringToUtf8(const std::wstring& ws)
@@ -323,13 +333,10 @@ static const std::vector<uint8_t>& ConvertImageToDDSMemory(
     ID3D11Device* device,
     const GltfLoader::GltfModel& gltf,
     int imageIndex,
-    TextureType type
+    TextureType type,
+    std::map<TextureKey, std::vector<uint8_t>>& textureCache
 )
 {
-    // テクスチャキャッシュ
-    using TextureKey = std::pair<int, TextureType>;
-    static std::map<TextureKey, std::vector<uint8_t>> textureCache;
-
     const auto& image = gltf.images[imageIndex];
 
     TextureKey key = { imageIndex, type };
@@ -361,7 +368,8 @@ static int RegisterTexture(
     int texIndex,
     TextureType type,
     std::vector<TextureEntry>& textures,
-    std::map<std::pair<int, TextureType>, int>& textureIndexMap
+    std::map<std::pair<int, TextureType>, int>& textureIndexMap,
+    std::map<TextureKey, std::vector<uint8_t>>& textureCache
 )
 {
     int imageIndex = gltf.textures[texIndex].imageIndex;
@@ -373,7 +381,7 @@ static int RegisterTexture(
         return it->second;
 
     // 未登録ならDDS生成
-    const auto& dds = ConvertImageToDDSMemory(device, gltf, imageIndex, type);
+    const auto& dds = ConvertImageToDDSMemory(device, gltf, imageIndex, type, textureCache);
 
     int newIndex = (int)textures.size();
 
@@ -465,69 +473,125 @@ static std::vector<Imase::AnimationClip> ConvertAllClips(const std::vector<GltfL
     return result;
 }
 
-// アニメーションデータのノードを『親→子』に並び変えを行う関数
-static void ReorderNodes(
-    std::vector<NodeInfo>& nodes,
-    std::vector<Imase::AnimationClip>& clips
-)
+// ノードを並び替え『親→子』する関数
+static void ReorderNodesRaw(
+    std::vector<Imase::NodeInfo>& nodes,
+    std::vector<GltfLoader::AnimationClip>& animationClips,
+    std::vector<Imase::SkinInfo>& skins)
 {
-    const size_t count = nodes.size();
+    const int nodeCount = (int)nodes.size();
+    if (nodeCount == 0) return;
 
-    // 新旧インデックスマップ
-    std::vector<int> oldToNew(count, -1);
-    std::vector<NodeInfo> newNodes;
-    newNodes.reserve(count);
+    //--------------------------------------------
+    // 一時的に children リストを構築
+    //--------------------------------------------
+    std::vector<std::vector<int>> children(nodeCount);
 
-    // DFSで親→子順に追加
+    for (int i = 0; i < nodeCount; i++)
+    {
+        int parent = nodes[i].parentIndex;
+        if (parent >= 0)
+            children[parent].push_back(i);
+    }
+
+    //--------------------------------------------
+    // ルート検出（parent == -1）
+    //--------------------------------------------
+    std::vector<int> roots;
+    for (int i = 0; i < nodeCount; i++)
+    {
+        if (nodes[i].parentIndex < 0)
+            roots.push_back(i);
+    }
+
+    //--------------------------------------------
+    // DFS順を作る
+    //--------------------------------------------
+    std::vector<int> newOrder;
+    newOrder.reserve(nodeCount);
+
+    std::vector<bool> visited(nodeCount, false);
+
     std::function<void(int)> dfs = [&](int index)
         {
-            if (oldToNew[index] != -1)
+            if (visited[index])
                 return;
 
-            int parent = nodes[index].parentIndex;
-            if (parent >= 0)
-                dfs(parent);
+            visited[index] = true;
+            newOrder.push_back(index);
 
-            oldToNew[index] = (int)newNodes.size();
-            newNodes.push_back(nodes[index]);
+            for (int child : children[index])
+                dfs(child);
         };
 
-    for (size_t i = 0; i < count; ++i)
-        dfs((int)i);
+    for (int root : roots)
+        dfs(root);
 
-    // parentIndex を書き換える
-    for (auto& node : newNodes)
+    if ((int)newOrder.size() != nodeCount)
+    {
+        throw std::runtime_error("Node reorder failed.");
+    }
+
+    //--------------------------------------------
+    // old→new マップ作成
+    //--------------------------------------------
+    std::vector<int> oldToNew(nodeCount);
+
+    for (int newIndex = 0; newIndex < nodeCount; newIndex++)
+    {
+        oldToNew[newOrder[newIndex]] = newIndex;
+    }
+
+    //--------------------------------------------
+    // ノード並び替え
+    //--------------------------------------------
+    std::vector<Imase::NodeInfo> reordered(nodeCount);
+
+    for (int i = 0; i < nodeCount; i++)
+    {
+        reordered[i] = nodes[newOrder[i]];
+    }
+
+    nodes = std::move(reordered);
+
+    //--------------------------------------------
+    // parentIndex 更新
+    //--------------------------------------------
+    for (auto& node : nodes)
     {
         if (node.parentIndex >= 0)
             node.parentIndex = oldToNew[node.parentIndex];
     }
 
-    // animation の nodeIndex を更新
-    for (auto& clip : clips)
+    //--------------------------------------------
+    // animation 更新
+    //--------------------------------------------
+    for (auto& clip : animationClips)
     {
-        for (auto& ch : clip.translations)
+        for (auto& nodeAnim : clip.nodes)
         {
-            ch.nodeIndex = oldToNew[ch.nodeIndex];
-        }
-
-        for (auto& ch : clip.rotations)
-        {
-            ch.nodeIndex = oldToNew[ch.nodeIndex];
-        }
-
-        for (auto& ch : clip.scales)
-        {
-            ch.nodeIndex = oldToNew[ch.nodeIndex];
+            nodeAnim.nodeIndex = oldToNew[nodeAnim.nodeIndex];
         }
     }
+    //--------------------------------------------
+    // skin 更新
+    //--------------------------------------------
+    for (auto& skin : skins)
+    {
+        if (skin.rootNode >= 0)
+            skin.rootNode = oldToNew[skin.rootNode];
 
-    nodes = std::move(newNodes);
+        for (auto& joint : skin.jointIndices)
+        {
+            joint = oldToNew[joint];
+        }
+    }
 }
 
 // glTFファイルの情報取得関数
 static void ConvertImdl(
     ID3D11Device* device,
-    const GltfLoader::GltfModel& gltf,
+    GltfLoader::GltfModel& gltf,
     std::vector<MaterialInfo>& materials,
     std::vector<SubMeshInfo>& subMeshes,
     std::vector<MeshGroupInfo>& meshGroups,
@@ -535,10 +599,15 @@ static void ConvertImdl(
     std::vector<TextureEntry>& textures,
     std::vector<VertexPositionNormalTextureTangent>& vertexBuffer,
     std::vector<uint32_t>& indexBuffer,
-    std::vector<Imase::AnimationClip>& animationClips
+    std::vector<Imase::AnimationClip>& animationClips,
+    std::vector<SkinInfo>& skins,
+    std::map<TextureKey, std::vector<uint8_t>>& textureCache
 )
 {
     std::map<std::pair<int, TextureType>, int> textureIndexMap;
+
+    // ノードを並び替え『親→子』する
+    ReorderNodesRaw(gltf.nodes, gltf.animationClips, gltf.skins);
 
     // ----- デフォルトマテリアル追加 ---- //
     MaterialInfo defaultMat;
@@ -552,19 +621,19 @@ static void ConvertImdl(
         // 各テクスチャ登録
         if (mat.baseColorTexIndex >= 0)
         {
-            m.baseColorTexIndex = RegisterTexture(device, gltf, mat.baseColorTexIndex, TextureType::BaseColor, textures, textureIndexMap);
+            m.baseColorTexIndex = RegisterTexture(device, gltf, mat.baseColorTexIndex, TextureType::BaseColor, textures, textureIndexMap, textureCache);
         }
         if (mat.normalTexIndex >= 0)
         {
-            m.normalTexIndex = RegisterTexture(device, gltf, mat.normalTexIndex, TextureType::Normal, textures, textureIndexMap);
+            m.normalTexIndex = RegisterTexture(device, gltf, mat.normalTexIndex, TextureType::Normal, textures, textureIndexMap, textureCache);
         }
         if (mat.metalRoughTexIndex >= 0)
         {
-            m.metalRoughTexIndex = RegisterTexture(device, gltf, mat.metalRoughTexIndex, TextureType::MetalRough, textures, textureIndexMap);
+            m.metalRoughTexIndex = RegisterTexture(device, gltf, mat.metalRoughTexIndex, TextureType::MetalRough, textures, textureIndexMap, textureCache);
         }
         if (mat.emissiveTexIndex >= 0)
         {
-            m.emissiveTexIndex = RegisterTexture(device, gltf, mat.emissiveTexIndex, TextureType::Emissive, textures, textureIndexMap);
+            m.emissiveTexIndex = RegisterTexture(device, gltf, mat.emissiveTexIndex, TextureType::Emissive, textures, textureIndexMap, textureCache);
         }
 
         materials.push_back(m);
@@ -607,8 +676,8 @@ static void ConvertImdl(
     // アニメション
     animationClips = ConvertAllClips(gltf.animationClips);
 
-    // ノードとアニメーションを再構築
-    ReorderNodes(nodes, animationClips);
+    // スキン
+    skins = gltf.skins;
 
     return;
 }
@@ -715,8 +784,8 @@ static std::vector<uint8_t> BuildMeshGroupChunk(const std::vector<MeshGroupInfo>
 inline void SerializeNode(BinaryWriter& writer, const NodeInfo& m)
 {
     writer.WriteInt32(m.meshGroupIndex);
-
     writer.WriteInt32(m.parentIndex);
+    writer.WriteInt32(m.skinIndex);
 
     writer.WriteFloat(m.defaultTranslation.x);
     writer.WriteFloat(m.defaultTranslation.y);
@@ -860,6 +929,29 @@ static std::vector<uint8_t> BuildAnimationChunk(const std::vector<Imase::Animati
     return writer.GetBuffer();
 }
 
+// 頂点データのシリアライズ関数
+inline void SerializeSkin(BinaryWriter& writer, const SkinInfo& skin)
+{
+    writer.WriteInt32(skin.rootNode);
+    writer.WriteCountedArray<uint32_t>(skin.jointIndices);
+    writer.WriteCountedArray<DirectX::XMFLOAT4X4>(skin.inverseBindMatrices);
+}
+
+// スキンデータ作成
+static std::vector<uint8_t> BuildSkinChunk(const std::vector<SkinInfo>& skins)
+{
+    BinaryWriter writer;
+
+    writer.WriteUInt32(static_cast<uint32_t>(skins.size()));
+
+    for (const auto& skin : skins)
+    {
+        SerializeSkin(writer, skin);
+    }
+
+    return writer.GetBuffer();
+}
+
 // ファイルへの出力関数
 static HRESULT OutputImdl( const std::filesystem::path& path,
                            std::vector<MaterialInfo>& materials,
@@ -869,7 +961,8 @@ static HRESULT OutputImdl( const std::filesystem::path& path,
                            std::vector<TextureEntry>& textures,
                            std::vector<VertexPositionNormalTextureTangent>& vertexBuffer,
                            std::vector<uint32_t>& indexBuffer,
-                           std::vector<Imase::AnimationClip>& animationClips
+                           std::vector<Imase::AnimationClip>& animationClips,
+                           std::vector<SkinInfo>& skins
 )
 {
     // 出力ファイルオープン
@@ -917,6 +1010,9 @@ static HRESULT OutputImdl( const std::filesystem::path& path,
     // ----- ANIMATION ----- //
     WriteChunk(ofs, chunkCount, CHUNK_ANIMATION, BuildAnimationChunk(animationClips));
 
+    // ----- SKIN ----- //
+    WriteChunk(ofs, chunkCount, CHUNK_SKIN, BuildSkinChunk(skins));
+
     // チャンク数を追加したヘッダを書き戻す
     fileHeader.chunkCount = chunkCount;
     ofs.seekp(0);
@@ -963,18 +1059,21 @@ int wmain(int argc, wchar_t* wargv[])
     std::vector<MeshGroupInfo> meshGroups;  // メッシュグループ
     std::vector<NodeInfo> nodes;            // ノード
     std::vector<VertexPositionNormalTextureTangent> vertexBuffer;   // 頂点
-    std::vector<uint32_t> indexBuffer;  // インデックス
+    std::vector<uint32_t> indexBuffer;      // インデックス
     std::vector<Imase::AnimationClip> animationClips;   // アニメションクリップ  
+    std::vector<SkinInfo> skins;            // スキン  
+    std::map<TextureKey, std::vector<uint8_t>> textureCache;    // テクスチャキャッシュ
 
     // glTFファイルのロード
     GltfLoader::GltfModel gltf = GltfLoader::Load(input);
 
     // Imdl用の情報に変換
-    ConvertImdl(device.Get(), gltf, materials, subMeshes, meshGroups, nodes, textures, vertexBuffer, indexBuffer, animationClips);
+    ConvertImdl(device.Get(), gltf,
+        materials, subMeshes, meshGroups, nodes, textures, vertexBuffer, indexBuffer, animationClips, skins, textureCache);
 
     // ----- 書き出し ----- //
 
-    OutputImdl(output, materials, subMeshes, meshGroups, nodes, textures, vertexBuffer, indexBuffer, animationClips);
+    OutputImdl(output, materials, subMeshes, meshGroups, nodes, textures, vertexBuffer, indexBuffer, animationClips, skins);
 
     CoUninitialize();
 
