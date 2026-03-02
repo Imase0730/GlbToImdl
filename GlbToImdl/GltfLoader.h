@@ -37,19 +37,6 @@ public:
         int samplerIndex;   // サンプラーインデックス（現在未使用）
     };
 
-    // 頂点データ
-    struct Vertex
-    {
-        DirectX::XMFLOAT3 position; // 位置
-        DirectX::XMFLOAT3 normal;   // 法線
-        DirectX::XMFLOAT2 uv;       // テクスチャ座標
-        DirectX::XMFLOAT4 tangent;  // 接線
-
-        // スキニング用
-        DirectX::XMUINT4 joint;
-        DirectX::XMFLOAT4 weight;
-    };
-
     // サンプラー情報
     struct GltfSampler
     {
@@ -101,7 +88,7 @@ public:
     struct GltfModel
     {
         // ★共有バッファ
-        std::vector<Vertex> vertices;
+        std::vector<Imase::VertexPositionNormalTextureTangent> vertices;
         std::vector<uint32_t> indices;
 
         // ★描画情報

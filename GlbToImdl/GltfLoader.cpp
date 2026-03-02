@@ -321,7 +321,7 @@ void GltfLoader::BuildMesh(
             // 頂点追加
             for (size_t j = 0; j < positions.size(); j++)
             {
-                Vertex vertex
+                Imase::VertexPositionNormalTextureTangent vertex
                 {
                     positions[j],
                     hasNormal ? (*normals)[j] : XMFLOAT3(0.0f, 0.0f, 1.0f),
@@ -633,13 +633,7 @@ void GltfLoader::BuildSkin(
 
             for (size_t j = 0; j < values.size(); j++)
             {
-                XMMATRIX m = XMLoadFloat4x4(&values[j]);
-                m = XMMatrixTranspose(m);   // <- 転置する（DirectXは行優先のため）
-
-                XMFLOAT4X4 store;
-                XMStoreFloat4x4(&store, m);
-
-                outSkin.inverseBindMatrices.push_back(store);
+                outSkin.inverseBindMatrices.push_back(values[j]);   // <- glTLは列優先だがXMFLOAT4X4にコピーすると転置する
             }
         }
         else

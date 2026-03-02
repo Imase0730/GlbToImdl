@@ -985,8 +985,8 @@ static std::vector<uint8_t> BuildMeshGroupChunk(const std::vector<MeshGroupInfo>
 inline void SerializeNode(BinaryWriter& writer, const NodeInfo& m)
 {
     writer.WriteInt32(m.meshGroupIndex);
-
     writer.WriteInt32(m.parentIndex);
+    writer.WriteInt32(m.skinIndex);
 
     writer.WriteFloat(m.defaultTranslation.x);
     writer.WriteFloat(m.defaultTranslation.y);
@@ -1035,6 +1035,16 @@ inline void SerializeVertex(BinaryWriter& writer, const VertexPositionNormalText
     writer.WriteFloat(v.tangent.y);
     writer.WriteFloat(v.tangent.z);
     writer.WriteFloat(v.tangent.w);
+
+    writer.WriteUInt32(v.joint.x);
+    writer.WriteUInt32(v.joint.y);
+    writer.WriteUInt32(v.joint.z);
+    writer.WriteUInt32(v.joint.w);
+
+    writer.WriteFloat(v.weight.x);
+    writer.WriteFloat(v.weight.y);
+    writer.WriteFloat(v.weight.z);
+    writer.WriteFloat(v.weight.w);
 }
 
 // 頂点データ作成

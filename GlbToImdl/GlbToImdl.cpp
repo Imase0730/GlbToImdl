@@ -663,8 +663,7 @@ static void ConvertImdl(
     // 頂点
     for (const auto& vertex : gltf.vertices)
     {
-        VertexPositionNormalTextureTangent v = { vertex.position, vertex.normal, vertex.uv,vertex.tangent };
-        vertexBuffer.push_back(v);
+        vertexBuffer.push_back(vertex);
     }
 
     // インデックス
@@ -834,6 +833,16 @@ inline void SerializeVertex(BinaryWriter& writer, const VertexPositionNormalText
     writer.WriteFloat(v.tangent.y);
     writer.WriteFloat(v.tangent.z);
     writer.WriteFloat(v.tangent.w);
+
+    writer.WriteUInt32(v.joint.x);
+    writer.WriteUInt32(v.joint.y);
+    writer.WriteUInt32(v.joint.z);
+    writer.WriteUInt32(v.joint.w);
+
+    writer.WriteFloat(v.weight.x);
+    writer.WriteFloat(v.weight.y);
+    writer.WriteFloat(v.weight.z);
+    writer.WriteFloat(v.weight.w);
 }
 
 // 頂点データ作成

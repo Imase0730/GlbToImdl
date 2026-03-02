@@ -18,6 +18,12 @@ namespace Imase
     {
     public:
 
+        // yint16_tz‚ğ‘‚«‚ŞŠÖ”
+        void WriteInt16(int16_t v)
+        {
+            WriteRaw(&v, sizeof(v));
+        }
+
         // yuint32_tz‚ğ‘‚«‚ŞŠÖ”
         void WriteUInt32(uint32_t v)
         {

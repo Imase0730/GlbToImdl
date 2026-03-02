@@ -70,8 +70,8 @@ namespace Imase
         DirectX::XMFLOAT4 tangent;     // xyz = 接線, w = 従接線の向きを調整（1,-1)
 
         // ----- スキニング用 ----- //
-        uint16_t joints[4];
-        float    weights[4];
+        DirectX::XMUINT4 joint;
+        DirectX::XMFLOAT4 weight;
     };
 
     // -------------------------------------------------------------------------------------- //
