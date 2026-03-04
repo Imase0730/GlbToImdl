@@ -125,6 +125,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\Common\mikktspace.c" />
     <ClCompile Include="GlbToImdl.cpp" />
     <ClCompile Include="GltfLoader.cpp" />
     <ClCompile Include="TinyGltfImpl.cpp" />
@@ -135,7 +136,10 @@
   <ItemGroup>
     <ClInclude Include="..\Common\BinaryWriter.h" />
     <ClInclude Include="..\Common\ChunkIO.h" />
+    <ClCompile Include="..\Common\MeshTangentGenerator.cpp" />
     <ClInclude Include="..\Common\Imdl.h" />
+    <ClInclude Include="..\Common\MeshTangentGenerator.h" />
+    <ClInclude Include="..\Common\mikktspace.h" />
     <ClInclude Include="AccessorView.h" />
     <ClInclude Include="GltfLoader.h" />
   </ItemGroup>

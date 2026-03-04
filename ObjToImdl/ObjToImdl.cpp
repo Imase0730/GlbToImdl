@@ -62,6 +62,7 @@
 #include "../Common/BinaryWriter.h"
 #include "../Common/ChunkIO.h"
 #include "../Common/Imdl.h"
+#include "../Common/MeshTangentGenerator.h"
 
 using namespace DirectX;
 using namespace Imase;
@@ -454,32 +455,32 @@ static HRESULT ConvertToDDSMemory(
     // ----------------------------------
     // 1. 法線マップのみY反転（TexConv.exeの-inverty相当）
     // ----------------------------------
-    if (type == TextureType::Normal)
-    {
-        ScratchImage flipped;
+    //if (type == TextureType::Normal)
+    //{
+    //    ScratchImage flipped;
 
-        auto invertY = [](XMVECTOR* outPixels, const XMVECTOR* inPixels, size_t width, size_t y) noexcept
-            {
-                for (size_t x = 0; x < width; ++x)
-                {
-                    XMVECTOR v = inPixels[x];
+    //    auto invertY = [](XMVECTOR* outPixels, const XMVECTOR* inPixels, size_t width, size_t y) noexcept
+    //        {
+    //            for (size_t x = 0; x < width; ++x)
+    //            {
+    //                XMVECTOR v = inPixels[x];
 
-                    // G成分反転
-                    v = XMVectorSetY(v, 1.0f - XMVectorGetY(v));
+    //                // G成分反転
+    //                v = XMVectorSetY(v, 1.0f - XMVectorGetY(v));
 
-                    outPixels[x] = v;
-                }
-            };
+    //                outPixels[x] = v;
+    //            }
+    //        };
 
-        HRESULT hr = TransformImage(
-            scratch.GetImages(),
-            scratch.GetImageCount(),
-            scratch.GetMetadata(),
-            invertY,
-            flipped);
+    //    HRESULT hr = TransformImage(
+    //        scratch.GetImages(),
+    //        scratch.GetImageCount(),
+    //        scratch.GetMetadata(),
+    //        invertY,
+    //        flipped);
 
-        scratch = std::move(flipped);
-    }
+    //    scratch = std::move(flipped);
+    //}
 
     // ----------------------------------
     // 2. ミップ生成
@@ -1131,117 +1132,6 @@ static int OutputImdl( const std::filesystem::path& path,
     return 0;
 }
 
-// 頂点データに接線を追加する関数
-static void GenerateTangents(
-    std::vector<VertexPositionNormalTextureTangent>& vertices,
-    const std::vector<uint32_t>& indices)
-{
-    std::vector<XMFLOAT3> tanAccum(vertices.size(), { 0,0,0 });
-    std::vector<XMFLOAT3> bitanAccum(vertices.size(), { 0,0,0 });
-
-    auto add = [&](uint32_t idx, const XMFLOAT3& t, const XMFLOAT3& b)
-        {
-            tanAccum[idx].x += t.x;
-            tanAccum[idx].y += t.y;
-            tanAccum[idx].z += t.z;
-
-            bitanAccum[idx].x += b.x;
-            bitanAccum[idx].y += b.y;
-            bitanAccum[idx].z += b.z;
-        };
-
-    auto set = [&](uint32_t idx, const XMFLOAT3& t, const XMFLOAT3& b)
-        {
-            tanAccum[idx] = t;
-            bitanAccum[idx] = b;
-        };
-
-    // 三角形の各頂点の法線が同じ向きならフラットシェーディングの面と判定
-    auto isFlatFace = [&](uint32_t i0, uint32_t i1, uint32_t i2)
-        {
-            XMVECTOR n0 = XMLoadFloat3(&vertices[i0].normal);
-            XMVECTOR n1 = XMLoadFloat3(&vertices[i1].normal);
-            XMVECTOR n2 = XMLoadFloat3(&vertices[i2].normal);
-
-            float d01 = XMVectorGetX(XMVector3Dot(n0, n1));
-            float d12 = XMVectorGetX(XMVector3Dot(n1, n2));
-
-            return d01 > 0.999f && d12 > 0.999f;
-        };
-
-    // ---- 三角形ごと ----
-    for (size_t i = 0; i + 2 < indices.size(); i += 3)
-    {
-        uint32_t i0 = indices[i + 0];
-        uint32_t i1 = indices[i + 1];
-        uint32_t i2 = indices[i + 2];
-
-        auto& v0 = vertices[i0];
-        auto& v1 = vertices[i1];
-        auto& v2 = vertices[i2];
-
-        XMVECTOR p0 = XMLoadFloat3(&v0.position);
-        XMVECTOR p1 = XMLoadFloat3(&v1.position);
-        XMVECTOR p2 = XMLoadFloat3(&v2.position);
-
-        float du1 = v1.texcoord.x - v0.texcoord.x;
-        float dv1 = v1.texcoord.y - v0.texcoord.y;
-        float du2 = v2.texcoord.x - v0.texcoord.x;
-        float dv2 = v2.texcoord.y - v0.texcoord.y;
-
-        float denom = du1 * dv2 - du2 * dv1;
-        if (fabs(denom) < 1e-6f)
-            continue;
-
-        float f = 1.0f / denom;
-
-        XMVECTOR e1 = p1 - p0;
-        XMVECTOR e2 = p2 - p0;
-
-        XMVECTOR T = (e1 * dv2 - e2 * dv1) * f;
-        XMVECTOR B = (e2 * du1 - e1 * du2) * f;
-
-        XMFLOAT3 t, b;
-        XMStoreFloat3(&t, T);
-        XMStoreFloat3(&b, B);
-
-        bool flat = isFlatFace(i0, i1, i2);
-
-        if (flat)
-        {
-            // フラット：上書き
-            set(i0, t, b);
-            set(i1, t, b);
-            set(i2, t, b);
-        }
-        else
-        {
-            // スムーズ：加算
-            add(i0, t, b);
-            add(i1, t, b);
-            add(i2, t, b);
-        }
-    }
-
-    // ---- 正規化 & handedness ----
-    for (size_t i = 0; i < vertices.size(); i++)
-    {
-        XMVECTOR N = XMLoadFloat3(&vertices[i].normal);
-        XMVECTOR T = XMLoadFloat3(&tanAccum[i]);
-        XMVECTOR B = XMLoadFloat3(&bitanAccum[i]);
-
-        T = XMVector3Normalize(T - N * XMVector3Dot(N, T));
-
-        float w = (XMVectorGetX(
-            XMVector3Dot(XMVector3Cross(N, T), B)) < 0.0f)
-            ? -1.0f : 1.0f;
-
-        XMFLOAT3 t;
-        XMStoreFloat3(&t, T);
-        vertices[i].tangent = { t.x, t.y, t.z, w };
-    }
-}
-
 // DirectXのデバイスを作成する関数
 static void CreateD3DDevice(ID3D11Device** device)
 {
@@ -1366,7 +1256,7 @@ int wmain(int argc, wchar_t* wargv[])
     ConvertImdl(object, materialIndexMap, subMeshInfo, meshGroupInfo, nodeInfo, vertexBuffer, indexBuffer);
 
     // 頂点データに接線を追加
-    GenerateTangents(vertexBuffer, indexBuffer);
+    GenerateTangentsMikkTSpace(vertexBuffer, indexBuffer, 0, static_cast<uint32_t>(indexBuffer.size()));
 
     // ----- 書き出し ----- //
 

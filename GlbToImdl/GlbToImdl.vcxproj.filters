@@ -27,6 +27,12 @@
     <ClCompile Include="GltfLoader.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="..\Common\mikktspace.c">
+      <Filter>Common</Filter>
+    </ClCompile>
+    <ClCompile Include="..\Common\MeshTangentGenerator.cpp">
+      <Filter>Common</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -46,6 +52,12 @@
     </ClInclude>
     <ClInclude Include="GltfLoader.h">
       <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Common\mikktspace.h">
+      <Filter>Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Common\MeshTangentGenerator.h">
+      <Filter>Common</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

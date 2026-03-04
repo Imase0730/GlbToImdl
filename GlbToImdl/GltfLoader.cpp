@@ -8,6 +8,7 @@
 //--------------------------------------------------------------------------------------
 #include <iostream>
 #include <filesystem>
+#include "../Common/MeshTangentGenerator.h"
 #include "GltfLoader.h"
 #include "AccessorView.h"
 
@@ -267,59 +268,58 @@ void GltfLoader::BuildMesh(
         group.subMeshStart = (uint32_t)outModel.subMeshes.size();
         group.subMeshCount = (uint32_t)mesh.primitives.size();
 
-        // プリミティブ数ループ
+        // ★ primitive数ぶん SubMesh を先に確保
+        outModel.subMeshes.reserve(outModel.subMeshes.size() + mesh.primitives.size());
+
         for (auto& primitive : mesh.primitives)
         {
+            // ----- 位置 -----
+            AccessorView<XMFLOAT3> positions(model, primitive.attributes.at("POSITION"));
+            size_t vertexCount = positions.size();
+
+            // ★ 追加される頂点数ぶん確保
+            outModel.vertices.reserve(outModel.vertices.size() + vertexCount);
+
             uint32_t vertexStart = (uint32_t)outModel.vertices.size();
             uint32_t indexStart = (uint32_t)outModel.indices.size();
 
-            // ----- 位置 ----- //
-            AccessorView<XMFLOAT3> positions(model, primitive.attributes.at("POSITION"));
-
-            // ----- 法線 ----- //
+            // ----- 法線 -----
             std::unique_ptr<AccessorView<XMFLOAT3>> normals;
             bool hasNormal = primitive.attributes.count("NORMAL") > 0;
             if (hasNormal)
-            {
                 normals = std::make_unique<AccessorView<XMFLOAT3>>(model, primitive.attributes.at("NORMAL"));
-            }
 
-            // ----- テクスチャ座標 ----- //
+            // ----- UV -----
             std::unique_ptr<AccessorView<XMFLOAT2>> uvs;
             bool hasUV = primitive.attributes.count("TEXCOORD_0") > 0;
             if (hasUV)
-            {
                 uvs = std::make_unique<AccessorView<XMFLOAT2>>(model, primitive.attributes.at("TEXCOORD_0"));
-            }
 
-            // ----- 接線 ----- //
+            // ----- Tangent -----
             std::unique_ptr<AccessorView<XMFLOAT4>> tangents;
             bool hasTangent = primitive.attributes.count("TANGENT") > 0;
             if (hasTangent)
-            {
                 tangents = std::make_unique<AccessorView<XMFLOAT4>>(model, primitive.attributes.at("TANGENT"));
-            }
 
-            // ----- スキン ----- //
+            // ----- Skin -----
             bool hasSkin = primitive.attributes.count("JOINTS_0") > 0 && primitive.attributes.count("WEIGHTS_0") > 0;
+
             std::vector<DirectX::XMUINT4> joints;
             std::vector<DirectX::XMFLOAT4> weights;
+
             if (hasSkin)
             {
-                // ジョイント
                 ReadJoints(model, primitive.attributes.at("JOINTS_0"), joints);
-
-                // ウエイト
                 ReadWeights(model, primitive.attributes.at("WEIGHTS_0"), weights);
             }
             else
             {
-                joints.resize(positions.size(), DirectX::XMUINT4(0, 0, 0, 0));
-                weights.resize(positions.size(), DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 0.0f));
+                joints.resize(vertexCount, DirectX::XMUINT4(0, 0, 0, 0));
+                weights.resize(vertexCount, DirectX::XMFLOAT4(1.0f, 0.0f, 0.0f, 0.0f));
             }
 
-            // 頂点追加
-            for (size_t j = 0; j < positions.size(); j++)
+            // ===== 頂点追加 =====
+            for (size_t j = 0; j < vertexCount; j++)
             {
                 Imase::VertexPositionNormalTextureTangent vertex
                 {
@@ -330,38 +330,47 @@ void GltfLoader::BuildMesh(
                     joints[j],
                     weights[j],
                 };
+
                 outModel.vertices.push_back(vertex);
             }
 
-            // トポロジーはトライアングルリストのみ対応
+            // ===== インデックス =====
             if (primitive.mode != TINYGLTF_MODE_TRIANGLES)
                 throw std::runtime_error("Only TRIANGLES supported.");
 
-            // インデックス
             if (primitive.indices < 0)
                 throw std::runtime_error("Primitive has no indices.");
 
-            // インデックス追加
             IndexAccessorView indices(model, primitive.indices);
-            for (size_t j = 0; j < indices.size(); j++)
+            uint32_t indexCount = static_cast<uint32_t>(indices.size());
+
+            // ★ 追加されるインデックス数ぶん確保
+            outModel.indices.reserve(outModel.indices.size() + indexCount);
+
+            for (uint32_t j = 0; j < indexCount; j++)
             {
                 outModel.indices.push_back(vertexStart + indices[j]);
             }
 
-            // SubMesh作成
+            // 接線情報がない場合作成して追加する
+            if (!hasTangent)
+            {
+                GenerateTangentsMikkTSpace(outModel.vertices, outModel.indices, indexStart, indexCount);
+            }
+
+            // ===== SubMesh =====
             Imase::SubMeshInfo sub = {};
             sub.startIndex = indexStart;
-            sub.indexCount = (uint32_t)indices.size();
-            // 使用マテリアル番号（０はディフォルトマテリアル）
-            sub.materialIndex = (primitive.material >= 0) ? (primitive.material + 1) : 0;
+            sub.indexCount = (uint32_t)indexCount;
+            sub.materialIndex = (primitive.material >= 0)
+                ? (primitive.material + 1)
+                : 0;
 
             outModel.subMeshes.push_back(sub);
         }
 
         outModel.meshGroups[i] = group;
     }
-
-    return;
 }
 
 // マテリアル情報を取得する関数
@@ -489,7 +498,7 @@ void GltfLoader::BuildAnimation(const tinygltf::Model& model, std::vector<Animat
         clip.name = animation.name;
 
         // ノードインデックスとノードの対応マップ
-        std::unordered_map<int, size_t> nodeMap;
+        std::map<int, size_t> nodeMap;
 
         // channelとは、「対象ノードがどのsamplerを使用するか」
         for (const auto& channel : animation.channels)

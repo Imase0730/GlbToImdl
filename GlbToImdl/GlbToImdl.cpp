@@ -81,6 +81,33 @@ using namespace Imase;
 
 using TextureKey = std::pair<int, TextureType>;
 
+// hash 特殊化
+namespace std
+{
+    template<>
+    struct hash<TextureType>
+    {
+        size_t operator()(TextureType t) const noexcept
+        {
+            using Underlying = std::underlying_type_t<TextureType>;
+            return std::hash<Underlying>{}(static_cast<Underlying>(t));
+        }
+    };
+
+    template<>
+    struct hash<TextureKey>
+    {
+        size_t operator()(const TextureKey& key) const noexcept
+        {
+            size_t h1 = std::hash<int>{}(key.first);
+            size_t h2 = std::hash<TextureType>{}(key.second);
+
+            // boost風ハッシュ合成
+            return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+        }
+    };
+}
+
 // UTF-16 → UTF-8 変換
 static std::string WStringToUtf8(const std::wstring& ws)
 {
@@ -334,7 +361,7 @@ static const std::vector<uint8_t>& ConvertImageToDDSMemory(
     const GltfLoader::GltfModel& gltf,
     int imageIndex,
     TextureType type,
-    std::map<TextureKey, std::vector<uint8_t>>& textureCache
+    std::unordered_map<TextureKey, std::vector<uint8_t>>& textureCache
 )
 {
     const auto& image = gltf.images[imageIndex];
@@ -368,8 +395,8 @@ static int RegisterTexture(
     int texIndex,
     TextureType type,
     std::vector<TextureEntry>& textures,
-    std::map<std::pair<int, TextureType>, int>& textureIndexMap,
-    std::map<TextureKey, std::vector<uint8_t>>& textureCache
+    std::unordered_map<TextureKey, int>& textureIndexMap,
+    std::unordered_map<TextureKey, std::vector<uint8_t>>& textureCache
 )
 {
     int imageIndex = gltf.textures[texIndex].imageIndex;
@@ -601,10 +628,10 @@ static void ConvertImdl(
     std::vector<uint32_t>& indexBuffer,
     std::vector<Imase::AnimationClip>& animationClips,
     std::vector<SkinInfo>& skins,
-    std::map<TextureKey, std::vector<uint8_t>>& textureCache
+    std::unordered_map<TextureKey, std::vector<uint8_t>>& textureCache
 )
 {
-    std::map<std::pair<int, TextureType>, int> textureIndexMap;
+    std::unordered_map<TextureKey, int> textureIndexMap;
 
     // ノードを並び替え『親→子』する
     ReorderNodesRaw(gltf.nodes, gltf.animationClips, gltf.skins);
@@ -1071,7 +1098,7 @@ int wmain(int argc, wchar_t* wargv[])
     std::vector<uint32_t> indexBuffer;      // インデックス
     std::vector<Imase::AnimationClip> animationClips;   // アニメションクリップ  
     std::vector<SkinInfo> skins;            // スキン  
-    std::map<TextureKey, std::vector<uint8_t>> textureCache;    // テクスチャキャッシュ
+    std::unordered_map<TextureKey, std::vector<uint8_t>> textureCache;    // テクスチャキャッシュ
 
     // glTFファイルのロード
     GltfLoader::GltfModel gltf = GltfLoader::Load(input);

@@ -19,10 +19,19 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\Common\MeshTangentGenerator.cpp" />
+    <ClCompile Include="..\Common\mikktspace.c" />
     <ClCompile Include="ObjToImdl.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\Common\BinaryWriter.h" />
+    <ClInclude Include="..\Common\ChunkIO.h" />
+    <ClInclude Include="..\Common\Imdl.h" />
+    <ClInclude Include="..\Common\MeshTangentGenerator.h" />
+    <ClInclude Include="..\Common\mikktspace.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
