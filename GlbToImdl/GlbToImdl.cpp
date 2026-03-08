@@ -128,6 +128,13 @@ static std::string WStringToUtf8(const std::wstring& ws)
     return result;
 }
 
+// パス付きファイル名を出力用ファイル名に変換する関数
+// 例　C:¥Imase\A.imdl → C:¥Imase\A_anim.h 
+std::filesystem::path MakeOutputPath(const std::filesystem::path& input, const std::string& suffix)
+{
+    return input.parent_path() / (input.stem().string() + suffix);
+}
+
 // ヘルプ表示
 static void Help()
 {
@@ -169,8 +176,7 @@ static int AnalyzeOption(int argc, char* argv[], std::filesystem::path& input, s
         // -o,-output 出力ファイル名
         if (result.count("output") == 0) {
             // 指定されていない場合は出力ファイル名は、入力ファイル名.mdlにする
-            output = std::filesystem::path(input);
-            output.replace_extension(".imdl");
+            output = MakeOutputPath(input, ".imdl");
         }
         else
         {
@@ -1057,6 +1063,100 @@ static HRESULT OutputImdl( const std::filesystem::path& path,
     return S_OK;
 }
 
+// 文字列にスペースなどが入っていた場合に_に置き換えるサニタイズ関数
+static std::string SanitizeIdentifier(const std::string& name)
+{
+    std::string result;
+
+    for (char c : name)
+    {
+        // 文字が英数字か調べる
+        if (std::isalnum(static_cast<unsigned char>(c)))
+        {
+            result += c;
+        }
+        else
+        {
+            result += '_';
+        }
+    }
+
+    // 先頭が数字なら _
+    if (!result.empty() && std::isdigit(static_cast<unsigned char>(result[0])))
+    {
+        result.insert(result.begin(), '_');
+    }
+
+    // 連続する _ をまとめる
+    std::string cleaned;
+    bool prevUnderscore = false;
+
+    for (char c : result)
+    {
+        if (c == '_')
+        {
+            if (!prevUnderscore)
+            {
+                cleaned += c;
+                prevUnderscore = true;
+            }
+        }
+        else
+        {
+            cleaned += c;
+            prevUnderscore = false;
+        }
+    }
+
+    return cleaned;
+}
+
+// ----- アニメーションインデックス書き出し ----- //
+HRESULT OutputIndexHeader(std::filesystem::path path, const std::vector<Imase::AnimationClip>& animationClips)
+{
+    std::ofstream ofs(path.c_str());
+
+    if (!ofs.is_open())
+    {
+        std::wcout << "Could not open " << path.c_str() << std::endl;
+        return E_FAIL;
+    }
+
+    ofs << "#pragma once\n\n";
+
+    ofs << "// Auto-generated file. Do not edit.\n\n";
+
+    ofs << "namespace AnimationIndex\n";
+    ofs << "{\n";
+
+    // ----- enum -----
+    ofs << "    enum : int\n";
+    ofs << "    {\n";
+
+    for (size_t i = 0; i < animationClips.size(); ++i)
+    {
+        ofs << "        " << SanitizeIdentifier(animationClips[i].name) << " = " << i << ",\n";
+    }
+
+    ofs << "        Count = " << animationClips.size() << "\n";
+    ofs << "    };\n\n";
+
+    // ----- 名前テーブル（デバッグ用）-----
+    ofs << "    static const char* Names[] =\n";
+    ofs << "    {\n";
+
+    for (const auto& clip : animationClips)
+    {
+        ofs << "        \"" << clip.name << "\",\n";
+    }
+
+    ofs << "    };\n";
+
+    ofs << "}\n";
+
+    return S_OK;
+}
+
 int wmain(int argc, wchar_t* wargv[])
 {
     HRESULT hr = CoInitializeEx(nullptr, COINITBASE_MULTITHREADED);
@@ -1110,6 +1210,12 @@ int wmain(int argc, wchar_t* wargv[])
     // ----- 書き出し ----- //
 
     OutputImdl(output, materials, subMeshes, meshGroups, nodes, textures, vertexBuffer, indexBuffer, animationClips, skins);
+
+    // ----- アニメーションインデックス書き出し ----- //
+    if (!animationClips.empty())
+    {
+        OutputIndexHeader(MakeOutputPath(input, "_anim.h"), animationClips);
+    }
 
     CoUninitialize();
 
