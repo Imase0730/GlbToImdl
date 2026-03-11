@@ -258,18 +258,27 @@ static HRESULT ConvertToDDSMemory(
     const uint8_t* rgbaData,
     size_t width,
     size_t height,
+    int bits,
     TextureType type,
     std::vector<uint8_t>& outDDS)
 {
     HRESULT hr;
 
+    bool is16bit = (bits == 16);
+
     // ----------------------------------
     // 1. ScratchImage 初期化
     // ----------------------------------
+
+    DXGI_FORMAT srcFormat =
+        is16bit ?
+        DXGI_FORMAT_R16G16B16A16_UNORM :
+        DXGI_FORMAT_R8G8B8A8_UNORM;
+
     ScratchImage scratch;
 
     hr = scratch.Initialize2D(
-        DXGI_FORMAT_R8G8B8A8_UNORM,
+        srcFormat,
         width,
         height,
         1,
@@ -279,22 +288,50 @@ static HRESULT ConvertToDDSMemory(
         return hr;
 
     const Image* img = scratch.GetImage(0, 0, 0);
-    uint8_t* pixels = scratch.GetPixels();
+
+    size_t pixelSize = is16bit ? 8 : 4;
 
     for (size_t y = 0; y < height; ++y)
     {
-        memcpy(pixels + y * img->rowPitch, rgbaData + y * width * 4, width * 4);
+        memcpy(
+            img->pixels + y * img->rowPitch,
+            rgbaData + y * width * pixelSize,
+            width * pixelSize);
     }
 
     // ----------------------------------
-    // 2. ミップ生成
+    // 2. 16bitなら8bitへ変換
     // ----------------------------------
+
+    ScratchImage converted;
+
+    if (is16bit)
+    {
+        hr = Convert(
+            scratch.GetImages(),
+            scratch.GetImageCount(),
+            scratch.GetMetadata(),
+            DXGI_FORMAT_R8G8B8A8_UNORM,
+            TEX_FILTER_DEFAULT,
+            TEX_THRESHOLD_DEFAULT,
+            converted);
+
+        if (FAILED(hr))
+            return hr;
+    }
+
+    const ScratchImage& srcImage = is16bit ? converted : scratch;
+
+    // ----------------------------------
+    // 3. ミップ生成
+    // ----------------------------------
+
     ScratchImage mipChain;
 
     hr = GenerateMipMaps(
-        scratch.GetImages(),
-        scratch.GetImageCount(),
-        scratch.GetMetadata(),
+        srcImage.GetImages(),
+        srcImage.GetImageCount(),
+        srcImage.GetMetadata(),
         TEX_FILTER_FANT,
         0,
         mipChain);
@@ -303,11 +340,11 @@ static HRESULT ConvertToDDSMemory(
         return hr;
 
     // ----------------------------------
-    // 3. GPU圧縮
+    // 4. BC圧縮
     // ----------------------------------
+
     ScratchImage compressed;
 
-    DXGI_FORMAT format = GetFormat(type);
     if (type == TextureType::Normal)
     {
         hr = Compress(
@@ -321,6 +358,8 @@ static HRESULT ConvertToDDSMemory(
     }
     else
     {
+        DXGI_FORMAT format = GetFormat(type);
+
         hr = Compress(
             device,
             mipChain.GetImages(),
@@ -336,8 +375,9 @@ static HRESULT ConvertToDDSMemory(
         return hr;
 
     // ----------------------------------
-    // 4. メモリ内にDDS生成
+    // 5. DDS生成
     // ----------------------------------
+
     Blob ddsBlob;
 
     hr = SaveToDDSMemory(
@@ -351,10 +391,13 @@ static HRESULT ConvertToDDSMemory(
         return hr;
 
     // ----------------------------------
-    // 5. vector にコピー
+    // 6. vectorへコピー
     // ----------------------------------
+
     outDDS.resize(ddsBlob.GetBufferSize());
-    memcpy(outDDS.data(),
+
+    memcpy(
+        outDDS.data(),
         ddsBlob.GetBufferPointer(),
         ddsBlob.GetBufferSize());
 
@@ -382,7 +425,7 @@ static const std::vector<uint8_t>& ConvertImageToDDSMemory(
     }
 
     std::vector<uint8_t> dds;
-    HRESULT hr = ConvertToDDSMemory(device, image.data.data(), image.width, image.height, type, dds);
+    HRESULT hr = ConvertToDDSMemory(device, image.data.data(), image.width, image.height, image.bits, type, dds);
     if (FAILED(hr))
     {
         char msg[256];
