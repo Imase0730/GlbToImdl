@@ -738,7 +738,7 @@ static int AnalyzeMtl( ID3D11Device* device,
                     if (!std::filesystem::exists(p))
                     {
                         std::wcerr << L"Texture not found: " << p.wstring() << std::endl;
-                        return -1;
+                        continue;
                     }
                 }
 
@@ -771,7 +771,7 @@ static int AnalyzeMtl( ID3D11Device* device,
                     if (!std::filesystem::exists(p))
                     {
                         std::wcerr << L"Texture not found: " << p.wstring() << std::endl;
-                        return -1;
+                        continue;
                     }
                 }
                 // テクスチャ登録
