@@ -453,37 +453,7 @@ static HRESULT ConvertToDDSMemory(
     HRESULT hr;
 
     // ----------------------------------
-    // 1. 法線マップのみY反転（TexConv.exeの-inverty相当）
-    // ----------------------------------
-    //if (type == TextureType::Normal)
-    //{
-    //    ScratchImage flipped;
-
-    //    auto invertY = [](XMVECTOR* outPixels, const XMVECTOR* inPixels, size_t width, size_t y) noexcept
-    //        {
-    //            for (size_t x = 0; x < width; ++x)
-    //            {
-    //                XMVECTOR v = inPixels[x];
-
-    //                // G成分反転
-    //                v = XMVectorSetY(v, 1.0f - XMVectorGetY(v));
-
-    //                outPixels[x] = v;
-    //            }
-    //        };
-
-    //    HRESULT hr = TransformImage(
-    //        scratch.GetImages(),
-    //        scratch.GetImageCount(),
-    //        scratch.GetMetadata(),
-    //        invertY,
-    //        flipped);
-
-    //    scratch = std::move(flipped);
-    //}
-
-    // ----------------------------------
-    // 2. ミップ生成
+    // 1. ミップ生成
     // ----------------------------------
     ScratchImage mipChain;
 
@@ -499,7 +469,7 @@ static HRESULT ConvertToDDSMemory(
         return hr;
 
     // ----------------------------------
-    // 3. GPU圧縮
+    // 2. GPU圧縮
     // ----------------------------------
     ScratchImage compressed;
 
@@ -532,7 +502,7 @@ static HRESULT ConvertToDDSMemory(
         return hr;
 
     // ----------------------------------
-    // 4. メモリ内にDDS生成
+    // 3. メモリ内にDDS生成
     // ----------------------------------
     Blob ddsBlob;
 
@@ -547,7 +517,7 @@ static HRESULT ConvertToDDSMemory(
         return hr;
 
     // ----------------------------------
-    // 5. vector にコピー
+    // 4. vector にコピー
     // ----------------------------------
     outDDS.resize(ddsBlob.GetBufferSize());
     memcpy(outDDS.data(),
@@ -705,7 +675,7 @@ static int AnalyzeMtl( ID3D11Device* device,
             // Ns = 1000 x (1 - metallic)^2
             // Nsを使ってroughnessを算出する
             // シェダー側では【spcularPower = 1000 x (1 - roughness)^2】で計算
-            float roughness = 1.0f - (sqrtf(Ns / 1000.0f));
+            float roughness = 1.0f - sqrtf(Ns / 1000.0f);
             materials.back().roughnessFactor = roughness;
         }
 
