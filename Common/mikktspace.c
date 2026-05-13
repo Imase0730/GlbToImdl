@@ -1,4 +1,4 @@
-/** \file mikktspace/mikktspace.c
+﻿/** \file mikktspace/mikktspace.c
  *  \ingroup mikktspace
  */
 /**
